@@ -1,0 +1,937 @@
+import { Editor, Extension } from "@tiptap/core";
+import { keymap } from "@tiptap/pm/keymap";
+import StarterKit from "@tiptap/starter-kit";
+
+import Collaboration from "@tiptap/extension-collaboration";
+import CollaborationCaret from "@tiptap/extension-collaboration-caret";
+import DragHandle from "@tiptap/extension-drag-handle";
+// Yjs imports (no WebsocketProvider since we're using custom WebSocket)
+
+import {
+  LoroSyncPlugin,
+  LoroUndoPlugin,
+  redo,
+  undo,
+  CursorAwareness,
+  LoroCursorPlugin,
+} from "loro-prosemirror";
+
+import {
+  LoroDoc,
+  LoroTree,
+  LoroTreeNode,
+  LoroMap,
+  LoroText,
+  ContainerID,
+  TreeID,
+} from "loro-crdt";
+
+import * as sdk from "matrix-js-sdk";
+
+let matrixClient: sdk.MatrixClient;
+
+import { AutoDiscovery } from "matrix-js-sdk";
+import {
+  isLivekitFocusConfig,
+  LivekitFocus,
+} from "matrix-js-sdk/src/matrixrtc/LivekitFocus";
+import {
+  MatrixRTCSession,
+  MatrixRTCSessionEvent,
+} from "matrix-js-sdk/src/matrixrtc/MatrixRTCSession";
+
+const FOCI_WK_KEY = "org.matrix.msc4143.rtc_foci";
+
+import { MatrixClient, type IOpenIDToken } from "matrix-js-sdk/src/matrix";
+import { logger } from "matrix-js-sdk/src/logger";
+
+import { Room, RoomEvent } from "livekit-client";
+import { sleep } from "matrix-js-sdk/src/utils";
+
+export interface SFUConfig {
+  url: string;
+  jwt: string;
+}
+export type OpenIDClientParts = Pick<
+  MatrixClient,
+  "getOpenIdToken" | "getDeviceId"
+>;
+
+function getRandomAnimalName() {
+  const animals = [
+    "Lion",
+    "Tiger",
+    "Elephant",
+    "Giraffe",
+    "Zebra",
+    "Monkey",
+    "Panda",
+    "Koala",
+    "Kangaroo",
+    "Dolphin",
+    "Whale",
+    "Shark",
+    "Eagle",
+    "Owl",
+    "Parrot",
+    "Penguin",
+    "Flamingo",
+    "Bear",
+    "Wolf",
+    "Fox",
+    "Rabbit",
+    "Deer",
+    "Horse",
+    "Cat",
+    "Hamster",
+    "Hedgehog",
+    "Squirrel",
+    "Raccoon",
+    "Otter",
+    "Seal",
+    "Turtle",
+    "Frog",
+    "Butterfly",
+    "Bee",
+    "Ladybug",
+    "Spider",
+    "Octopus",
+    "Jellyfish",
+    "Starfish",
+    "Crab",
+    "Lobster",
+    "Shrimp",
+    "Salmon",
+    "Tuna",
+    "Goldfish",
+    "Seahorse",
+    "Crocodile",
+    "Lizard",
+    "Snake",
+    "Chameleon",
+  ];
+
+  return animals[Math.floor(Math.random() * animals.length)];
+}
+
+// Function to get a random color in hex format
+function getRandomColor() {
+  const colors = [
+    "#6DFF7E", // Green
+    "#FF6D6D", // Red
+    "#6D9EFF", // Blue
+    "#FFD66D", // Yellow
+    "#FF6DFF", // Magenta
+    "#6DFFFF", // Cyan
+    "#FF9D6D", // Orange
+    "#A06DFF", // Purple
+    "#FF6DA0", // Pink
+    "#6DFFA0", // Mint
+    "#FFA06D", // Peach
+    "#A0FF6D", // Lime
+    "#6DA0FF", // Sky Blue
+    "#FF6DDE", // Hot Pink
+    "#DFF6D6", // Light Green
+    "#FFB3BA", // Light Pink
+    "#BAFFC9", // Light Mint
+    "#BAE1FF", // Light Blue
+    "#FFFFBA", // Light Yellow
+    "#FFDFBA", // Light Orange
+  ];
+
+  return colors[Math.floor(Math.random() * colors.length)];
+}
+
+export async function makePreferredLivekitFoci(
+  rtcSession: MatrixRTCSession,
+  livekitAlias: string,
+  matrix_client: MatrixClient
+): Promise<LivekitFocus[]> {
+  console.log("Start building foci_preferred list: ", rtcSession.room.roomId);
+
+  const preferredFoci: LivekitFocus[] = [];
+
+  // Prioritize the .well-known/matrix/client, if available, over the configured SFU
+  const domain = matrix_client.getDomain();
+  if (domain) {
+    // we use AutoDiscovery instead of relying on the MatrixClient having already
+    // been fully configured and started
+    const wellKnownFoci = (await AutoDiscovery.getRawClientConfig(domain))?.[
+      FOCI_WK_KEY
+    ];
+    if (Array.isArray(wellKnownFoci)) {
+      preferredFoci.push(
+        ...wellKnownFoci
+          .filter((f) => !!f)
+          .filter(isLivekitFocusConfig)
+          .map((wellKnownFocus) => {
+            console.log(
+              "Adding livekit focus from well known: ",
+              wellKnownFocus
+            );
+            return { ...wellKnownFocus, livekit_alias: livekitAlias };
+          })
+      );
+    }
+  }
+  return preferredFoci;
+}
+async function getLiveKitJWT(
+  client: OpenIDClientParts,
+  livekitServiceURL: string,
+  roomName: string,
+  openIDToken: IOpenIDToken
+): Promise<SFUConfig> {
+  try {
+    const res = await fetch(livekitServiceURL + "/sfu/get", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        room: roomName,
+        openid_token: openIDToken,
+        device_id: client.getDeviceId(),
+      }),
+    });
+    if (!res.ok) {
+      throw new Error("SFU Config fetch failed with status code " + res.status);
+    }
+    const sfuConfig = await res.json();
+    console.log(
+      "MatrixRTCExample: get SFU config: \nurl:",
+      sfuConfig.url,
+      "\njwt",
+      sfuConfig.jwt
+    );
+    return sfuConfig;
+  } catch (e) {
+    throw new Error("SFU Config fetch failed with exception " + e);
+  }
+}
+
+export async function getSFUConfigWithOpenID(
+  client: OpenIDClientParts,
+  activeFocus: LivekitFocus
+): Promise<SFUConfig | undefined> {
+  const openIdToken = await client.getOpenIdToken();
+  logger.debug("Got openID token", openIdToken);
+
+  try {
+    logger.info(
+      `Trying to get JWT from call's active focus URL of ${activeFocus.livekit_service_url}...`
+    );
+    const sfuConfig = await getLiveKitJWT(
+      client,
+      activeFocus.livekit_service_url,
+      activeFocus.livekit_alias,
+      openIdToken
+    );
+    logger.info(`Got JWT from call's active focus URL.`);
+
+    return sfuConfig;
+  } catch (e) {
+    logger.warn(
+      `Failed to get JWT from RTC session's active focus URL of ${activeFocus.livekit_service_url}.`,
+      e
+    );
+    return undefined;
+  }
+}
+//@ts-ignore
+import { Ok, Error } from "../gleam.mjs";
+
+export async function login_matrix(
+  access_token: string,
+  user_id: string,
+  device_id: string
+) {
+  matrixClient = sdk.createClient({
+    baseUrl: "https://matrix.org",
+    accessToken: access_token,
+    deviceId: device_id,
+    userId: user_id,
+  });
+
+  // console.log("access_token found : " + access_token);
+  try {
+    await matrixClient.initRustCrypto();
+    await matrixClient.startClient();
+
+    // Validate the token by making an authenticated request
+    const whoami = await matrixClient.whoami();
+    // console.log("Token validated for user:", whoami.user_id);
+
+    return new Ok(matrixClient);
+  } catch {
+    matrixClient.stopClient();
+    indexedDB.deleteDatabase("matrix-js-sdk::matrix-sdk-crypto");
+    console.log("Token Is invalid.");
+    return new Error(
+      "Token Is invalid. You have been logged out. Refresh the page"
+    );
+  }
+}
+export async function login_sso() {
+  matrixClient = sdk.createClient({ baseUrl: "https://matrix.org" });
+
+  const redirectUri = window.location.origin + "/login/";
+
+  const ssoUrl = matrixClient.getSsoLoginUrl(
+    redirectUri,
+    undefined,
+    "m.login.sso"
+  );
+
+  window.location.href = ssoUrl;
+}
+
+export async function get_login_sso() {
+  if (window.location.pathname === "/login/") {
+    const params = new URLSearchParams(window.location.search);
+    const access_token = params.get("loginToken");
+
+    if (!access_token) {
+      console.error("Missing SSO credentials in URL fragment");
+      return new Error("Missing SSO credentials in URL fragment");
+    } else {
+      const url = new URL(window.location.origin + "/");
+      url.searchParams.delete("loginToken");
+      window.history.replaceState(
+        {},
+        document.title,
+        url.pathname + url.search
+      );
+
+      matrixClient = sdk.createClient({
+        baseUrl: "https://matrix.org",
+        accessToken: access_token,
+      });
+
+      try {
+        const loginData = {
+          type: "m.login.token",
+          token: access_token,
+        };
+        const response = await matrixClient.loginRequest(loginData);
+        // Set the access token and userId manually, since loginRequest doesn't do this automatically
+        matrixClient.http.opts.accessToken = response.access_token;
+        matrixClient.credentials = {
+          userId: response.user_id,
+        };
+        matrixClient.deviceId = response.device_id;
+
+        console.log("Matrix client connected");
+        localStorage.setItem("access_token", matrixClient.getAccessToken()!);
+        localStorage.setItem("device_id", matrixClient.getDeviceId()!);
+        localStorage.setItem("user_id", matrixClient.getUserId()!);
+
+        await matrixClient.initRustCrypto(); // Must be called after setting credentials
+        await matrixClient.startClient();
+
+        return new Ok(matrixClient);
+      } catch (error) {
+        console.error("Matrix login failed:", error);
+        let message = "Matrix login failed: \n" + error;
+        return new Error(message);
+      }
+    }
+  } else {
+    return new Error("");
+  }
+}
+
+export function get_rooms(matrixClient: sdk.MatrixClient) {
+  matrixClient.removeAllListeners(sdk.ClientEvent.Sync);
+
+  matrixClient.on(sdk.ClientEvent.Sync, () => {
+    const currentRooms = matrixClient.getRooms();
+
+    const mainApp = document.querySelector("#main-app");
+    if (mainApp) {
+      const messageEvent = new CustomEvent("rooms_updated", {
+        detail: currentRooms,
+      });
+      mainApp.dispatchEvent(messageEvent);
+    }
+  });
+}
+export function save_document() {
+  const mainApp = document.querySelector("#main-app");
+  if (mainApp) {
+    const messageEvent = new CustomEvent("save_doc");
+    mainApp.dispatchEvent(messageEvent);
+  }
+}
+
+export async function save_function(room_id: string, doc: LoroDoc) {
+  const stateEvents = await matrixClient.roomState(room_id);
+
+  const loroEvents = stateEvents.filter((event) =>
+    event.type.startsWith("loro.doc")
+  );
+  const importPromises = loroEvents.map(async (event) => {
+    try {
+      const mxcUrl = event.content.url;
+      const url = matrixClient.mxcUrlToHttp(
+        mxcUrl,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        true // useAuthentication
+      )!;
+
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${matrixClient.getAccessToken()}`,
+        },
+      });
+
+      if (!response.ok) {
+        console.warn(`Failed to fetch Loro document from ${url}`);
+        return null;
+      }
+
+      const body = await response.arrayBuffer();
+      return new Uint8Array(body);
+    } catch (error) {
+      console.error("Error importing Loro document:", error);
+      return null;
+    }
+  });
+
+  const uint8Arrays = (await Promise.all(importPromises)).filter(
+    Boolean
+  ) as Uint8Array[];
+
+  doc.importBatch(uint8Arrays);
+
+  const snapshot = doc.export({
+    mode: "snapshot",
+  });
+
+  const mxcUrl = await matrixClient.http.uploadContent(snapshot, {
+    type: "application/octet-stream",
+    name: "loro-doc.bin",
+  });
+
+  let url = mxcUrl.content_uri;
+
+  await matrixClient.sendStateEvent(
+    room_id, //@ts-ignore
+    "loro.doc." + matrixClient.getDeviceId()!,
+    {
+      type: "update",
+      url: url,
+    },
+    matrixClient.getUserId()!
+  );
+
+  const mainApp = document.querySelector("#main-app");
+  if (mainApp) {
+    const messageEvent = new CustomEvent("state_saved");
+    mainApp.dispatchEvent(messageEvent);
+  }
+}
+
+export async function user_selected_note(note_id: String) {
+  const mainApp = document.querySelector("#main-app");
+
+  if (mainApp) {
+    const messageEvent = new CustomEvent("user-selected-note", {
+      detail: note_id,
+    });
+
+    mainApp.dispatchEvent(messageEvent);
+  }
+}
+export async function init_tiptap(
+  doc: LoroDoc,
+  matrixClient: MatrixClient,
+  room_id: string
+) {
+  // await matrixClient.initRustCrypto();
+
+  const editorElement = document.querySelector(".editor");
+  if (!editorElement) {
+    throw new Error('Editor element with class "editor" not found');
+  }
+
+  // let loro_doc = localStorage.getItem("loro_doc");
+
+  // let doc: LoroDoc;
+  // if (loro_doc) {
+  //   const binaryString = atob(loro_doc);
+  //   const snapshot = new Uint8Array(binaryString.length);
+  //   for (let i = 0; i < binaryString.length; i++) {
+  //     snapshot[i] = binaryString.charCodeAt(i);
+  //   }
+
+  //   doc = LoroDoc.fromSnapshot(snapshot);
+  // } else {
+  //   doc = new LoroDoc();
+  // }
+  const mainApp = document.querySelector("#main-app");
+  const awareness = new CursorAwareness(doc.peerIdStr);
+  let selected_document;
+  doc.setRecordTimestamp(true);
+  // let awareness;
+  let editor: Editor | undefined;
+  let livekitRoom;
+  let render_editor = (doc_name) => {
+    let container = doc.getMap(doc_name);
+    const LoroPlugins = Extension.create({
+      name: "loro-plugins",
+      addProseMirrorPlugins() {
+        return [
+          LoroSyncPlugin({
+            //@ts-ignore
+            doc,
+            containerId: container.id,
+          }),
+          LoroUndoPlugin({ doc }),
+          LoroCursorPlugin(awareness, {
+            user: {
+              name: matrixClient!.getUser(matrixClient.getUserId()!)!
+                .rawDisplayName!,
+              color: getRandomColor(),
+            },
+          }),
+          keymap({ "Mod-z": undo, "Mod-y": redo, "Mod-Shift-z": redo }),
+        ];
+      },
+    });
+
+    editor = new Editor({
+      element: editorElement,
+      extensions: [
+        LoroPlugins,
+        // AutoJoiner,
+        // Collaboration.configure({ document: provider.doc }),
+        // CollaborationCaret.configure({
+        //   provider,
+        //   user: {
+        //     name: matrixClient.getUser(matrixClient.getUserId()!)?.rawDisplayName,
+        //     color: getRandomColor(),
+        //   },
+        // }),
+        DragHandle.configure({
+          // render: () => {
+          //   let element = document.createElement("svg");
+          //   return element;
+          // },
+        }),
+        StarterKit.configure({
+          undoRedo: false, // Disable built-in undo/redo since we're using collaboration
+        }),
+      ],
+    });
+  };
+
+  if (mainApp) {
+    mainApp.addEventListener("user-selected-note", (e) => {
+      selected_document = e.detail;
+      if (editor) {
+        editor.destroy();
+
+        render_editor(selected_document);
+      } else {
+        render_editor(selected_document);
+      }
+    });
+  }
+
+  matrixClient.once(sdk.ClientEvent.Sync, async (state, prev_state, res) => {
+    const matrix_room = matrixClient.getRoom(room_id);
+    if (!matrix_room) {
+      // Create and dispatch custom event
+
+      // throw new Error("Room not found after sync");
+      if (mainApp) {
+        let message =
+          "I couldn't join the rrom you provided please check that this room ID is correct then refresh the page \n the room ID you inserted: \n\n" +
+          room_id;
+        const messageEvent = new CustomEvent("error_sent", {
+          detail: message,
+        });
+        mainApp.dispatchEvent(messageEvent);
+      }
+    } else {
+      const session = matrixClient.matrixRTC.getRoomSession(matrix_room);
+
+      const focus = (
+        await makePreferredLivekitFoci(
+          session,
+          matrix_room.roomId,
+          matrixClient
+        )
+      )[0];
+
+      const sfuConfig = await getSFUConfigWithOpenID(matrixClient, focus);
+      if (!sfuConfig) throw "Could not get SFU config from the jwt service";
+
+      livekitRoom = new Room({});
+
+      livekitRoom.connect(sfuConfig.url, sfuConfig.jwt);
+
+      save_function(room_id, doc);
+
+      const mainApp = document.querySelector("#main-app");
+      if (mainApp) {
+        mainApp.addEventListener("save_doc", () => {
+          save_function(room_id, doc);
+        });
+      }
+
+      let seconds = 300;
+
+      setInterval(async () => save_function(room_id, doc), seconds * 1000);
+
+      livekitRoom.on("participantConnected", (participant) => {
+        let update = doc.export({ mode: "update" });
+        const updateString = btoa(String.fromCharCode(...update));
+        let update_json = JSON.stringify({
+          type: "update",
+          doc: updateString,
+        });
+        const update_encoder = new TextEncoder();
+        const update_data = update_encoder.encode(update_json);
+
+        livekitRoom.localParticipant.publishData(update_data, {
+          reliable: true,
+        });
+      });
+      livekitRoom.on("connected", () => {
+        let update = doc.export({ mode: "update" });
+        const updateString = btoa(String.fromCharCode(...update));
+        let update_json = JSON.stringify({
+          type: "update",
+          doc: updateString,
+        });
+        const update_encoder = new TextEncoder();
+        const update_data = update_encoder.encode(update_json);
+
+        livekitRoom.localParticipant.publishData(update_data, {
+          reliable: true,
+        });
+
+        doc.subscribe(async (e) => {
+          let snapshot = doc.export({ mode: "snapshot" });
+
+          const snapshotString = btoa(String.fromCharCode(...snapshot));
+
+          localStorage.setItem(room_id, snapshotString);
+
+          let update = doc.export({ mode: "update" });
+          const updateString = btoa(String.fromCharCode(...update));
+
+          let json = JSON.stringify({
+            type: "update",
+            doc: updateString,
+          });
+
+          const encoder = new TextEncoder();
+          const data = encoder.encode(json);
+
+          livekitRoom.localParticipant.publishData(data, {
+            reliable: false,
+          });
+        });
+
+        awareness.addListener((update, origin) => {
+          if (origin === "local") {
+            const awarenessUpdate = awareness.encode([doc.peerIdStr]);
+
+            const awarenessString = btoa(
+              String.fromCharCode(...awarenessUpdate)
+            );
+
+            let json = JSON.stringify({
+              type: "awareness",
+              selected_document: selected_document,
+              awareness: awarenessString,
+            });
+            const encoder = new TextEncoder();
+            const data = encoder.encode(json);
+
+            livekitRoom.localParticipant.publishData(data, {
+              reliable: false,
+            });
+          }
+        });
+        // init_awareness();
+      });
+      livekitRoom.on("dataReceived", (payload, participant) => {
+        const decoder = new TextDecoder();
+        const json_string = decoder.decode(payload);
+        const json = JSON.parse(json_string);
+
+        try {
+          // Handle document updates
+          if (json.doc) {
+            try {
+              // Decode base64 back to Uint8Array
+              const binaryString = atob(json.doc);
+              const update = new Uint8Array(binaryString.length);
+              for (let i = 0; i < binaryString.length; i++) {
+                update[i] = binaryString.charCodeAt(i);
+              }
+
+              doc.import(update);
+            } catch (error) {
+              console.error("Error importing document update:", error);
+            }
+          }
+
+          // Handle awareness updates (cursor positions from other clients)
+          if (json.awareness) {
+            if (json.selected_document) {
+              if (json.selected_document === selected_document) {
+                try {
+                  // Decode base64 back to Uint8Array
+                  const binaryString = atob(json.awareness);
+                  const awarenessUpdate = new Uint8Array(binaryString.length);
+                  for (let i = 0; i < binaryString.length; i++) {
+                    awarenessUpdate[i] = binaryString.charCodeAt(i);
+                  }
+
+                  awareness.apply(awarenessUpdate);
+                } catch (error) {
+                  console.error("Error applying awareness update:", error);
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.error(
+            "Error processing WebSocket message:",
+            error,
+            json_string
+          );
+        }
+      });
+    }
+  });
+}
+export function delete_db() {
+  indexedDB.deleteDatabase("matrix-js-sdk::matrix-sdk-crypto");
+}
+
+import {
+  draggable,
+  dropTargetForElements,
+} from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
+
+export function make_draggable(folders_and_items: [HTMLElement]) {
+  folders_and_items.forEach((element) => {
+    draggable({
+      element: element,
+    });
+  });
+}
+
+export function make_drop_target(
+  folders: [HTMLElement],
+  handleDragEnter,
+  handleDragLeave,
+  handleDrop
+) {
+  folders.forEach((folder_element) => {
+    dropTargetForElements({
+      element: folder_element,
+      canDrop(e) {
+        let item = e.source.element.dataset.drag_id;
+        let drop_target = folder_element.dataset.drag_id;
+        if (item === drop_target) {
+          return false;
+        }
+        if (
+          folder_element.dataset.drag_id === e.source.element.dataset.parent_id
+        ) {
+          return false;
+        }
+        if (
+          folder_element.dataset.drag_id === folder_element.dataset.parent_id
+        ) {
+          return false;
+        } else {
+          return true;
+        }
+      },
+      onDragEnter: () => {
+        handleDragEnter(folder_element.dataset.drag_id);
+      },
+      onDragLeave: () => {
+        handleDragLeave(folder_element.dataset.drag_id);
+      },
+
+      onDrop: (e) => {
+        let item = e.source.element.dataset.drag_id;
+
+        let drop_target = folder_element.dataset.drag_id;
+        let drop_target_type = folder_element.dataset.item_type;
+        let drop_target_parent_id = folder_element.dataset.parent_id;
+
+        if (drop_target_type === "folder") {
+          handleDrop(item, drop_target);
+        } else {
+          handleDrop(item, drop_target_parent_id);
+        }
+      },
+    });
+  });
+}
+
+export function get_tree(doc: LoroDoc, on_tree) {
+  let tree: LoroTree = doc.getTree("tree");
+  // tree.enableFractionalIndex(0);
+  let root = tree.createNode();
+  root.data.set("name", "root");
+  root.data.set("item_type", "folder");
+
+  // let folder1 = root.createNode();
+  // folder1.data.set("name", "folder1");
+  // folder1.data.set("item_type", "folder");
+
+  // let folder2 = root.createNode();
+  // folder2.data.set("name", "folder2");
+  // folder2.data.set("item_type", "folder");
+
+  // let file_1 = folder1.createNode();
+
+  // file_1.data.set("name", "README.md");
+  // file_1.data.set("item_type", "file");
+
+  // let file_2 = folder2.createNode();
+
+  // file_2.data.set("name", "gleam.toml");
+  // file_2.data.set("item_type", "file");
+
+  doc.subscribe(() => {
+    let json = JSON.stringify(tree.toArray()[0]);
+    on_tree(json);
+  });
+  doc.commit();
+
+  let json = JSON.stringify(tree.toArray()[0]);
+  return json;
+}
+
+export function create_loro_doc(room_id: string) {
+  let loro_doc = localStorage.getItem(room_id);
+
+  let doc: LoroDoc;
+  if (loro_doc) {
+    const binaryString = atob(loro_doc);
+    const snapshot = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      snapshot[i] = binaryString.charCodeAt(i);
+    }
+
+    doc = LoroDoc.fromSnapshot(snapshot);
+    return doc;
+  } else {
+    let updateString =
+      "bG9ybwAAAAAAAAAAAAAAALMgzjMAA9AAAABMT1JPAAHX7+veweqbzsQBBAACAHZ2Adfv697B6pvOxAEGAAwAxJxvVBva99cAAAAAAAMAAwEQAdf32htUb5zEAQEAAAAAAAUBAAABAAsCBAEDAAQEAAAAABQEbmFtZQlpdGVtX3R5cGUEdHJlZQkBAgIBAAMBAYAUAQQEBQACAAQEAAECBAEQBAsCBgEAEgAAAAEFBHJvb3QFBmZvbGRlcgAADAAdAAMAsImQGgEAAAAFAAAAAgBmcgAMAMScb1Qb2vfXAAAAADIPFQStAAAAogAAAExPUk8ABCJNGGBAgmIAAADxKwACAQAEdHJlZQQCCWl0ZW1fdHlwZQQGZm9sZGVyBG5hbWUEBHJvb3QAAdf32htUb5zEAAIAAQAGAIM2ACYDARkAQAQCAgFPABIFBwAFBgAgCQEZALADAQGAAAAANgACAAAAAACmP6p3AQAAAAUAAAANAADX99obVG+cxAAAAAABBgCDBHRyZWWhk7SsegAAAAAAAAA=";
+
+    const binaryString = atob(updateString);
+    const snapshot = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      snapshot[i] = binaryString.charCodeAt(i);
+    }
+
+    doc = LoroDoc.fromSnapshot(snapshot);
+    return doc;
+  }
+  // let doc = new LoroDoc();
+
+  // let seconds = 5;
+
+  // doc.subscribe(() => {
+  //   console.log(doc.toJSON());
+  // });
+
+  // setInterval(async () => console.log(doc.toJSON()), seconds * 1000);
+}
+
+export function create_new_note(doc: LoroDoc, item_id) {
+  let tree: LoroTree = doc.getTree("tree");
+
+  try {
+    let note = tree.createNode(item_id);
+    note.data.set("item_type", "file");
+    // note.data.set("name", "Untitled");
+
+    doc.commit();
+  } catch (error) {
+    console.log("Delete failed", error);
+  }
+}
+
+export function create_new_folder(doc: LoroDoc, item_id) {
+  let tree: LoroTree = doc.getTree("tree");
+
+  try {
+    let folder = tree.createNode(item_id);
+    folder.data.set("item_type", "folder");
+    doc.commit();
+  } catch (error) {
+    console.log("Delete failed", error);
+  }
+}
+
+export function move_item(
+  doc: LoroDoc,
+  item_id: TreeID,
+  drop_target_id: TreeID
+) {
+  let tree: LoroTree = doc.getTree("tree");
+
+  try {
+    tree.move(item_id, drop_target_id);
+
+    doc.commit();
+  } catch (error) {
+    console.log("Move failed", error);
+  }
+}
+
+export function delete_item(doc: LoroDoc, item_id: TreeID) {
+  let tree: LoroTree = doc.getTree("tree");
+
+  try {
+    tree.delete(item_id);
+
+    doc.commit();
+  } catch (error) {
+    console.log("Delete failed", error);
+  }
+}
+
+export function change_item_name(
+  doc: LoroDoc,
+  item_id: TreeID,
+  item_name: String,
+  item_name_changed
+) {
+  let tree: LoroTree = doc.getTree("tree");
+
+  try {
+    let item_node = tree.getNodeByID(item_id);
+
+    if (item_node) {
+      item_node.data.set("name", item_name);
+
+      doc.commit();
+
+      item_name_changed();
+    } else {
+      throw console.error();
+    }
+  } catch (error) {
+    item_name_changed();
+    console.log("Delete failed", error);
+  }
+}

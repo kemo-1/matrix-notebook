@@ -1,0 +1,7 @@
+onlyBuiltDependencies:
+  - '@swc/core'
+  - '@tailwindcss/oxide'
+  - bufferutil
+  - esbuild
+  - node-datachannel
+  - utf-8-validate

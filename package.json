@@ -1,0 +1,29 @@
+{
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "deploy": "vite build && wrangler pages deploy dist --project-name p2p-notes"
+  },
+  "dependencies": {
+    "@atlaskit/pragmatic-drag-and-drop": "^1.7.4",
+    "@matrix-org/matrix-sdk-crypto-wasm": "^14.2.1",
+    "@tailwindcss/vite": "^4.1.10",
+    "@tiptap/core": "3.0.0-beta.16",
+    "@tiptap/extension-collaboration": "3.0.0-beta.16",
+    "@tiptap/extension-collaboration-caret": "3.0.0-beta.16",
+    "@tiptap/extension-drag-handle": "3.0.0-beta.16",
+    "@tiptap/pm": "3.0.0-beta.16",
+    "@tiptap/starter-kit": "3.0.0-beta.16",
+    "events": "^3.3.0",
+    "livekit-client": "^2.13.8",
+    "loro-crdt": "^1.5.9",
+    "loro-prosemirror": "^0.2.3",
+    "matrix-js-sdk": "^37.9.0",
+    "vite": "^6.3.5",
+    "vite-gleam": "^0.4.3",
+    "vite-plugin-top-level-await": "^1.5.0",
+    "vite-plugin-wasm": "^3.4.1"
+  },
+  "packageManager": "pnpm@10.12.3+sha512.467df2c586056165580ad6dfb54ceaad94c5a30f80893ebdec5a44c5aa73c205ae4a5bb9d5ed6bb84ea7c249ece786642bbb49d06a307df218d03da41c317417"
+}
