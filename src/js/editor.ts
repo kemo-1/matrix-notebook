@@ -1,10 +1,6 @@
-import { Editor, Extension } from "@tiptap/core";
+// import { Editor, Extension } from "@tiptap/core";
 import { keymap } from "@tiptap/pm/keymap";
-import StarterKit from "@tiptap/starter-kit";
 
-import Collaboration from "@tiptap/extension-collaboration";
-import CollaborationCaret from "@tiptap/extension-collaboration-caret";
-import DragHandle from "@tiptap/extension-drag-handle";
 // Yjs imports (no WebsocketProvider since we're using custom WebSocket)
 import Dexie, { type EntityTable } from "dexie";
 
@@ -449,103 +445,89 @@ export async function user_selected_note(note_id: String) {
     mainApp.dispatchEvent(messageEvent);
   }
 }
+//@ts-ignore
+import { render_editor, create_root } from "./main.jsx";
+
 export async function init_tiptap(
   doc: LoroDoc,
   matrixClient: MatrixClient,
   room_id: string
 ) {
-  // await matrixClient.initRustCrypto();
-
-  const editorElement = document.querySelector(".editor");
-  if (!editorElement) {
-    throw new Error('Editor element with class "editor" not found');
-  }
-
-  // let loro_doc = localStorage.getItem("loro_doc");
-
-  // let doc: LoroDoc;
-  // if (loro_doc) {
-  //   const binaryString = atob(loro_doc);
-  //   const snapshot = new Uint8Array(binaryString.length);
-  //   for (let i = 0; i < binaryString.length; i++) {
-  //     snapshot[i] = binaryString.charCodeAt(i);
-  //   }
-
-  //   doc = LoroDoc.fromSnapshot(snapshot);
-  // } else {
-  //   doc = new LoroDoc();
-  // }
-  const mainApp = document.querySelector("#main-app");
   const awareness = new CursorAwareness(doc.peerIdStr);
+
+  const mainApp = document.querySelector("#main-app");
+
   let selected_document;
-  doc.setRecordTimestamp(true);
-  // let awareness;
-  let editor: Editor | undefined;
+
+  // // let awareness;
+  // let editor: Editor | undefined;
   let livekitRoom;
-  let render_editor = (doc_name) => {
-    let container = doc.getMap(doc_name);
-    const LoroPlugins = Extension.create({
-      name: "loro-plugins",
-      addProseMirrorPlugins() {
-        return [
-          LoroSyncPlugin({
-            //@ts-ignore
-            doc,
-            containerId: container.id,
-          }),
-          LoroUndoPlugin({ doc }),
-          LoroCursorPlugin(awareness, {
-            user: {
-              name: matrixClient!.getUser(matrixClient.getUserId()!)!
-                .rawDisplayName!,
-              color: getRandomColor(),
-            },
-          }),
-          keymap({ "Mod-z": undo, "Mod-y": redo, "Mod-Shift-z": redo }),
-        ];
-      },
-    });
-
-    editor = new Editor({
-      element: editorElement,
-      extensions: [
-        LoroPlugins,
-        // AutoJoiner,
-        // Collaboration.configure({ document: provider.doc }),
-        // CollaborationCaret.configure({
-        //   provider,
-        //   user: {
-        //     name: matrixClient.getUser(matrixClient.getUserId()!)?.rawDisplayName,
-        //     color: getRandomColor(),
-        //   },
-        // }),
-        DragHandle.configure({
-          // render: () => {
-          //   let element = document.createElement("svg");
-          //   return element;
-          // },
-        }),
-        StarterKit.configure({
-          undoRedo: false, // Disable built-in undo/redo since we're using collaboration
-        }),
-      ],
-    });
-  };
-
+  let editor;
   if (mainApp) {
     mainApp.addEventListener("user-selected-note", (e) => {
-      //@ts-ignore
-      selected_document = e.detail;
       if (editor) {
         editor.destroy();
 
-        render_editor(selected_document);
+        //@ts-ignore
+        selected_document = e.detail;
+        let container = doc.getMap(selected_document);
+        const LoroPlugins = Extension.create({
+          name: "loro-plugins",
+          addProseMirrorPlugins() {
+            return [
+              LoroSyncPlugin({
+                //@ts-ignore
+                doc,
+                containerId: container.id,
+              }),
+              LoroUndoPlugin({ doc }),
+              LoroCursorPlugin(awareness, {
+                user: {
+                  name: matrixClient!.getUser(matrixClient.getUserId()!)!
+                    .rawDisplayName!,
+                  color: getRandomColor(),
+                },
+              }),
+              keymap({ "Mod-z": undo, "Mod-y": redo, "Mod-Shift-z": redo }),
+            ];
+          },
+        });
+
+        render_editor(LoroPlugins, (editor) => {
+          editor = editor;
+        });
       } else {
-        render_editor(selected_document);
+        //@ts-ignore
+        selected_document = e.detail;
+        let container = doc.getMap(selected_document);
+        const LoroPlugins = Extension.create({
+          name: "loro-plugins",
+          addProseMirrorPlugins() {
+            return [
+              LoroSyncPlugin({
+                //@ts-ignore
+                doc,
+                containerId: container.id,
+              }),
+              LoroUndoPlugin({ doc }),
+              LoroCursorPlugin(awareness, {
+                user: {
+                  name: matrixClient!.getUser(matrixClient.getUserId()!)!
+                    .rawDisplayName!,
+                  color: getRandomColor(),
+                },
+              }),
+              keymap({ "Mod-z": undo, "Mod-y": redo, "Mod-Shift-z": redo }),
+            ];
+          },
+        });
+
+        render_editor(LoroPlugins, (editor) => {
+          editor = editor;
+        });
       }
     });
   }
-
   matrixClient.once(sdk.ClientEvent.Sync, async (state, prev_state, res) => {
     const matrix_room = matrixClient.getRoom(room_id);
     if (!matrix_room) {
@@ -727,6 +709,7 @@ import {
   draggable,
   dropTargetForElements,
 } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
+import { Extension } from "@tiptap/core";
 
 export function make_draggable(folders_and_items: [HTMLElement]) {
   folders_and_items.forEach((element) => {
@@ -852,6 +835,7 @@ export async function create_loro_doc(room_id: string) {
       // }
 
       doc = LoroDoc.fromSnapshot(existingFile.content);
+      doc.setRecordTimestamp(true);
       return doc;
     } else {
       // Create new document with default content (a tree with a root document that dosen't have any children)
@@ -865,7 +849,7 @@ export async function create_loro_doc(room_id: string) {
       }
 
       doc = LoroDoc.fromSnapshot(snapshot);
-
+      doc.setRecordTimestamp(true);
       // Save the initial document to Dexie with room_id as the key
       await db.files.put({
         id: room_id,

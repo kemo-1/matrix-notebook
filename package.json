@@ -7,24 +7,29 @@
   },
   "dependencies": {
     "@atlaskit/pragmatic-drag-and-drop": "^1.7.4",
+    "@blocknote/core": "^0.33.0",
+    "@blocknote/mantine": "^0.33.0",
+    "@blocknote/react": "^0.33.0",
     "@matrix-org/matrix-sdk-crypto-wasm": "^14.2.1",
     "@tailwindcss/vite": "^4.1.10",
-    "@tiptap/core": "3.0.0-beta.16",
-    "@tiptap/extension-collaboration": "3.0.0-beta.16",
-    "@tiptap/extension-collaboration-caret": "3.0.0-beta.16",
-    "@tiptap/extension-drag-handle": "3.0.0-beta.16",
-    "@tiptap/pm": "3.0.0-beta.16",
-    "@tiptap/starter-kit": "3.0.0-beta.16",
+    "@tiptap/core": "^2.24.1",
+    "@tiptap/pm": "^2.24.1",
+    "@vitejs/plugin-react": "^4.6.0",
     "dexie": "^4.0.11",
     "events": "^3.3.0",
     "livekit-client": "^2.13.8",
     "loro-crdt": "^1.5.9",
     "loro-prosemirror": "^0.2.3",
     "matrix-js-sdk": "^37.9.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
     "vite": "^6.3.5",
     "vite-gleam": "^0.4.3",
     "vite-plugin-top-level-await": "^1.5.0",
     "vite-plugin-wasm": "^3.4.1"
   },
-  "packageManager": "pnpm@10.12.4+sha512.5ea8b0deed94ed68691c9bad4c955492705c5eeb8a87ef86bc62c74a26b037b08ff9570f108b2e4dbd1dd1a9186fea925e527f141c648e85af45631074680184"
+  "packageManager": "pnpm@10.12.4+sha512.5ea8b0deed94ed68691c9bad4c955492705c5eeb8a87ef86bc62c74a26b037b08ff9570f108b2e4dbd1dd1a9186fea925e527f141c648e85af45631074680184",
+  "devDependencies": {
+    "@types/react-dom": "^19.1.6"
+  }
 }
