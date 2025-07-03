@@ -128,10 +128,14 @@ fn do_make_drop_target(
 ) -> Nil
 
 @external(javascript, "./js/editor.ts", "get_tree")
-fn get_tree(loro_doc: LoroDoc, on_tree: fn(String) -> Nil) -> String
+fn get_tree(
+  loro_doc: LoroDoc,
+  room_id: String,
+  on_tree: fn(String) -> Nil,
+) -> String
 
 @external(javascript, "./js/editor.ts", "create_loro_doc")
-fn create_loro_doc(room_id: String) -> LoroDoc
+fn create_loro_doc(room_id: String) -> Promise(LoroDoc)
 
 @external(javascript, "./js/editor.ts", "move_item")
 fn do_move_item(loro_doc: LoroDoc, item: String, folder: String) -> Nil
@@ -1332,24 +1336,27 @@ fn do_init_tiptap(
 fn init_tiptap(matrix_client: MatrixClient, room_id: String) {
   use dispatch, _ <- effect.after_paint
 
-  let loro_doc = create_loro_doc(room_id)
-  dispatch(LoroDocCreated(loro_doc))
+  promise.tap(create_loro_doc(room_id), fn(loro_doc) {
+    dispatch(LoroDocCreated(loro_doc))
 
-  get_tree(loro_doc, fn(tree) {
-    let results = json.parse(from: tree, using: node_decoder())
+    get_tree(loro_doc, room_id, fn(tree) {
+      let results = json.parse(from: tree, using: node_decoder())
 
-    case results {
-      Ok(root) -> {
-        dispatch(RenderTree(root))
+      case results {
+        Ok(root) -> {
+          dispatch(RenderTree(root))
+        }
+        Error(error) -> {
+          echo error
+          Nil
+        }
       }
-      Error(error) -> {
-        echo error
-        Nil
-      }
-    }
+    })
+
+    do_init_tiptap(loro_doc, matrix_client, room_id)
   })
 
-  do_init_tiptap(loro_doc, matrix_client, room_id)
+  Nil
 }
 
 fn delete_items(localstorage: storage.Storage) {

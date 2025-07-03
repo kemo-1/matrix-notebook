@@ -6,6 +6,7 @@ import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import DragHandle from "@tiptap/extension-drag-handle";
 // Yjs imports (no WebsocketProvider since we're using custom WebSocket)
+import Dexie, { type EntityTable } from "dexie";
 
 import {
   LoroSyncPlugin,
@@ -411,6 +412,7 @@ export async function save_function(room_id: string, doc: LoroDoc) {
   const snapshot = doc.export({
     mode: "snapshot",
   });
+  await save_loro_doc(room_id, doc);
 
   const mxcUrl = await matrixClient.http.uploadContent(snapshot, {
     type: "application/octet-stream",
@@ -532,6 +534,7 @@ export async function init_tiptap(
 
   if (mainApp) {
     mainApp.addEventListener("user-selected-note", (e) => {
+      //@ts-ignore
       selected_document = e.detail;
       if (editor) {
         editor.destroy();
@@ -618,11 +621,11 @@ export async function init_tiptap(
         });
 
         doc.subscribe(async (e) => {
-          let snapshot = doc.export({ mode: "snapshot" });
+          // let snapshot = doc.export({ mode: "snapshot" });
 
-          const snapshotString = btoa(String.fromCharCode(...snapshot));
+          // const snapshotString = btoa(String.fromCharCode(...snapshot));
 
-          localStorage.setItem(room_id, snapshotString);
+          // localStorage.setItem(room_id, snapshotString);
 
           let update = doc.export({ mode: "update" });
           const updateString = btoa(String.fromCharCode(...update));
@@ -638,6 +641,7 @@ export async function init_tiptap(
           livekitRoom.localParticipant.publishData(data, {
             reliable: false,
           });
+          await save_loro_doc(room_id, doc);
         });
 
         awareness.addListener((update, origin) => {
@@ -784,7 +788,7 @@ export function make_drop_target(
   });
 }
 
-export function get_tree(doc: LoroDoc, on_tree) {
+export function get_tree(doc: LoroDoc, room_id: string, on_tree) {
   let tree: LoroTree = doc.getTree("tree");
   // tree.enableFractionalIndex(0);
   let root = tree.createNode();
@@ -812,6 +816,7 @@ export function get_tree(doc: LoroDoc, on_tree) {
   doc.subscribe(() => {
     let json = JSON.stringify(tree.toArray()[0]);
     on_tree(json);
+    save_loro_doc(room_id, doc);
   });
   doc.commit();
 
@@ -819,41 +824,85 @@ export function get_tree(doc: LoroDoc, on_tree) {
   return json;
 }
 
-export function create_loro_doc(room_id: string) {
-  let loro_doc = localStorage.getItem(room_id);
+interface File {
+  id: string; // room_id will be used as the primary key
+  content: Uint8Array;
+}
 
-  let doc: LoroDoc;
-  if (loro_doc) {
-    const binaryString = atob(loro_doc);
-    const snapshot = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      snapshot[i] = binaryString.charCodeAt(i);
+export async function create_loro_doc(room_id: string) {
+  const db = new Dexie(room_id) as Dexie & {
+    files: EntityTable<File, "id">;
+  };
+
+  // Schema declaration:
+  db.version(1).stores({
+    files: "id, content", // id is the primary key (room_id)
+  });
+
+  try {
+    // Try to get existing document from Dexie using room_id
+    const existingFile = await db.files.get(room_id);
+
+    let doc: LoroDoc;
+    if (existingFile && existingFile.content) {
+      // const binaryString = atob(existingFile.content);
+      // const snapshot = new Uint8Array(binaryString.length);
+      // for (let i = 0; i < binaryString.length; i++) {
+      //   snapshot[i] = binaryString.charCodeAt(i);
+      // }
+
+      doc = LoroDoc.fromSnapshot(existingFile.content);
+      return doc;
+    } else {
+      // Create new document with default content (a tree with a root document that dosen't have any children)
+      let updateString =
+        "bG9ybwAAAAAAAAAAAAAAALMgzjMAA9AAAABMT1JPAAHX7+veweqbzsQBBAACAHZ2Adfv697B6pvOxAEGAAwAxJxvVBva99cAAAAAAAMAAwEQAdf32htUb5zEAQEAAAAAAAUBAAABAAsCBAEDAAQEAAAAABQEbmFtZQlpdGVtX3R5cGUEdHJlZQkBAgIBAAMBAYAUAQQEBQACAAQEAAECBAEQBAsCBgEAEgAAAAEFBHJvb3QFBmZvbGRlcgAADAAdAAMAsImQGgEAAAAFAAAAAgBmcgAMAMScb1Qb2vfXAAAAADIPFQStAAAAogAAAExPUk8ABCJNGGBAgmIAAADxKwACAQAEdHJlZQQCCWl0ZW1fdHlwZQQGZm9sZGVyBG5hbWUEBHJvb3QAAdf32htUb5zEAAIAAQAGAIM2ACYDARkAQAQCAgFPABIFBwAFBgAgCQEZALADAQGAAAAANgACAAAAAACmP6p3AQAAAAUAAAANAADX99obVG+cxAAAAAABBgCDBHRyZWWhk7SsegAAAAAAAAA=";
+
+      const binaryString = atob(updateString);
+      const snapshot = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        snapshot[i] = binaryString.charCodeAt(i);
+      }
+
+      doc = LoroDoc.fromSnapshot(snapshot);
+
+      // Save the initial document to Dexie with room_id as the key
+      await db.files.put({
+        id: room_id,
+        content: snapshot,
+      });
+
+      return doc;
     }
-
-    doc = LoroDoc.fromSnapshot(snapshot);
-    return doc;
-  } else {
-    let updateString =
-      "bG9ybwAAAAAAAAAAAAAAALMgzjMAA9AAAABMT1JPAAHX7+veweqbzsQBBAACAHZ2Adfv697B6pvOxAEGAAwAxJxvVBva99cAAAAAAAMAAwEQAdf32htUb5zEAQEAAAAAAAUBAAABAAsCBAEDAAQEAAAAABQEbmFtZQlpdGVtX3R5cGUEdHJlZQkBAgIBAAMBAYAUAQQEBQACAAQEAAECBAEQBAsCBgEAEgAAAAEFBHJvb3QFBmZvbGRlcgAADAAdAAMAsImQGgEAAAAFAAAAAgBmcgAMAMScb1Qb2vfXAAAAADIPFQStAAAAogAAAExPUk8ABCJNGGBAgmIAAADxKwACAQAEdHJlZQQCCWl0ZW1fdHlwZQQGZm9sZGVyBG5hbWUEBHJvb3QAAdf32htUb5zEAAIAAQAGAIM2ACYDARkAQAQCAgFPABIFBwAFBgAgCQEZALADAQGAAAAANgACAAAAAACmP6p3AQAAAAUAAAANAADX99obVG+cxAAAAAABBgCDBHRyZWWhk7SsegAAAAAAAAA=";
-
-    const binaryString = atob(updateString);
-    const snapshot = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      snapshot[i] = binaryString.charCodeAt(i);
-    }
-
-    doc = LoroDoc.fromSnapshot(snapshot);
-    return doc;
+  } catch (error) {
+    console.error("Error accessing Dexie database:", error);
+    throw error;
   }
-  // let doc = new LoroDoc();
+}
 
-  // let seconds = 5;
+// Helper function to save document updates to Dexie
+export async function save_loro_doc(room_id: string, doc: LoroDoc) {
+  const db = new Dexie(room_id) as Dexie & {
+    files: EntityTable<File, "id">;
+  };
 
-  // doc.subscribe(() => {
-  //   console.log(doc.toJSON());
-  // });
+  db.version(1).stores({
+    files: "id, content", // id is the primary key (room_id)
+  });
 
-  // setInterval(async () => console.log(doc.toJSON()), seconds * 1000);
+  try {
+    const snapshot = doc.export({ mode: "snapshot" });
+    // const base64String = btoa(String.fromCharCode(...snapshot));
+
+    // Update or create the file with room_id as the key
+    await db.files.put({
+      id: room_id,
+      content: snapshot,
+    });
+  } catch (error) {
+    console.error("Error saving to Dexie database:", error);
+    throw error;
+  }
 }
 
 export function create_new_note(doc: LoroDoc, item_id) {
