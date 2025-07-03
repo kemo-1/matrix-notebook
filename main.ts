@@ -14,7 +14,7 @@ channel.postMessage("ping");
 setTimeout(() => {
   if (!isDuplicate) {
     //@ts-ignore
-    import("./src/notion_clone.gleam").then(({ main }) => {
+    import("./src/matrix_notebook.gleam").then(({ main }) => {
       main({});
     });
   } else {

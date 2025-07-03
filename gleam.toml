@@ -1,4 +1,4 @@
-name = "notion_clone"
+name = "matrix_notebook"
 version = "1.0.0"
 target = "javascript"
 # Fill out these fields if you intend to generate HTML documentation or publish

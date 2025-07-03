@@ -604,9 +604,7 @@ fn view(model: Model, stylesheet) -> Element(Msg) {
                               css.padding_top(length.rem(0.75)),
                               css.padding_bottom(length.rem(0.75)),
                               css.min_height(length.rem(2.5)),
-                              css.background(
-                                "linear-gradient(135deg, rgba(38, 220, 87, 0.9), rgba(31, 180, 65, 0.9))",
-                              ),
+                              css.background("#1a1a2ef2"),
                               css.border("1px solid rgba(255, 255, 255, 0.12)"),
                               css.color("#ffffff"),
                               css.border_radius(length.px(12)),
@@ -617,20 +615,11 @@ fn view(model: Model, stylesheet) -> Element(Msg) {
                               css.transition(
                                 "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
                               ),
-                              css.box_shadow(
-                                "0 6px 20px rgba(38, 220, 87, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.25)",
-                              ),
                               css.hover([
-                                css.background(
-                                  "linear-gradient(135deg, rgba(38, 220, 87, 1), rgba(48, 240, 100, 1))",
-                                ),
                                 css.transform([
                                   transform.translate_y(length.px(-3)),
                                   transform.scale(1.02, 1.08),
                                 ]),
-                                css.box_shadow(
-                                  "0 10px 30px rgba(38, 220, 87, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.35)",
-                                ),
                                 css.border(
                                   "1px solid rgba(255, 255, 255, 0.25)",
                                 ),
@@ -642,7 +631,7 @@ fn view(model: Model, stylesheet) -> Element(Msg) {
                               ]),
                             ]),
                             [event.on_click(SaveDocument)],
-                            [html.text("Save The File To The Room")],
+                            [html.text("Save The Notebook To The Room")],
                           ),
                         ],
                       ),
