@@ -4,7 +4,7 @@
 https://github.com/user-attachments/assets/5e756e4d-9d8a-4d48-bf8d-fb89a1da0d2d
 
 
-[Demo](https://matrix-notebook.pages.dev/)
+Try it out at https://matrix-notebook.pages.dev
 
 # Planned Features
 
