@@ -2,6 +2,8 @@
 
 ## a project to use matrix as realtime scalable E2E encrypted content mangement system
 
+[Demo](https://matrix-notebook.pages.dev/)
+
 # Planned Features
 
 1. Publish your notes as a website
