@@ -1,7 +1,7 @@
 # Matrix Notebook
 
 ## a project to use matrix as realtime scalable E2E encrypted content mangement system
-https://github.com/user-attachments/assets/5e756e4d-9d8a-4d48-bf8d-fb89a1da0d2d
+https://github.com/user-attachments/assets/d0b1d140-cb36-4f14-ac90-3b6a4ad08578
 
 
 Try it out at https://matrix-notebook.pages.dev
