@@ -241,11 +241,20 @@ pub opaque type Msg {
   CreateNewFolder(String)
   HideFileSystemMenu
   UserSelectedNote(String)
+  DownloadNoteBook
 }
 
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
     DoNothing -> #(model, effect.none())
+    DownloadNoteBook -> {
+      case model.loro_doc {
+        Some(loro_doc) -> {
+          #(model, download_notebook(loro_doc))
+        }
+        None -> #(model, effect.none())
+      }
+    }
     UserSelectedNote(note_id) -> {
       #(
         Model(..model, filesystem_menu: None, selected_document: Some(note_id)),
@@ -636,6 +645,46 @@ fn view(model: Model, stylesheet) -> Element(Msg) {
                             ]),
                             [event.on_click(SaveDocument)],
                             [html.text("Save The Notebook To The Room")],
+                          ),
+                          html.button(
+                            class([
+                              css.z_index(200),
+                              css.display("flex"),
+                              css.align_items("center"),
+                              css.justify_content("center"),
+                              css.padding_right(length.rem(1.0)),
+                              css.padding_left(length.rem(1.0)),
+                              css.padding_top(length.rem(0.75)),
+                              css.padding_bottom(length.rem(0.75)),
+                              css.min_height(length.rem(2.5)),
+                              css.background("#1a1a2ef2"),
+                              css.border("1px solid rgba(255, 255, 255, 0.12)"),
+                              css.color("#ffffff"),
+                              css.border_radius(length.px(12)),
+                              css.cursor("pointer"),
+                              css.font_size(length.rem(0.9)),
+                              css.font_weight("600"),
+                              css.letter_spacing("0.3px"),
+                              css.transition(
+                                "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                              ),
+                              css.hover([
+                                css.transform([
+                                  transform.translate_y(length.px(-3)),
+                                  transform.scale(1.02, 1.08),
+                                ]),
+                                css.border(
+                                  "1px solid rgba(255, 255, 255, 0.25)",
+                                ),
+                              ]),
+                              css.active([
+                                css.transform([
+                                  transform.translate_y(length.px(-1)),
+                                ]),
+                              ]),
+                            ]),
+                            [event.on_click(DownloadNoteBook)],
+                            [html.text("Download The Notebook As a File")],
                           ),
                         ],
                       ),
@@ -1246,6 +1295,15 @@ fn login() {
 }
 
 type MatrixClient
+
+@external(javascript, "./js/editor.ts", "download_notebook")
+fn do_download_notebook(loro_doc: LoroDoc) -> Nil
+
+fn download_notebook(loro_doc: LoroDoc) -> Effect(Msg) {
+  use _ <- effect.from
+
+  do_download_notebook(loro_doc)
+}
 
 @external(javascript, "./js/editor.ts", "user_selected_note")
 fn do_user_selected_note(item_id: String) -> Nil

@@ -434,7 +434,7 @@ export async function save_function(room_id: string, doc: LoroDoc) {
   }
 }
 
-export async function user_selected_note(note_id: String) {
+export function user_selected_note(note_id: String) {
   const mainApp = document.querySelector("#main-app");
 
   if (mainApp) {
@@ -444,6 +444,22 @@ export async function user_selected_note(note_id: String) {
 
     mainApp.dispatchEvent(messageEvent);
   }
+}
+
+export function download_notebook(doc: LoroDoc) {
+  let snapshot = doc.export({ mode: "snapshot" });
+  // Convert Uint8Array to Blob
+  const blob = new Blob([snapshot], { type: "application/octet-stream" });
+
+  // Create download link
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "MyNoteBook.bin"; // or whatever filename you want
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 //@ts-ignore
 import { render_editor, create_root } from "./main.jsx";
@@ -460,13 +476,14 @@ export async function init_tiptap(
   let selected_document;
 
   // // let awareness;
-  // let editor: Editor | undefined;
-  let livekitRoom;
-  let editor;
+  // let tiptapEditor: Editor | undefined;
+  let livekitRoom: Room;
+  let tiptapEditor;
+  let blocknoteEditor: BlockNoteEditor | undefined;
   if (mainApp) {
     mainApp.addEventListener("user-selected-note", (e) => {
-      if (editor) {
-        editor.destroy();
+      if (tiptapEditor) {
+        tiptapEditor.destroy();
 
         //@ts-ignore
         selected_document = e.detail;
@@ -493,8 +510,9 @@ export async function init_tiptap(
           },
         });
 
-        render_editor(LoroPlugins, (editor) => {
-          editor = editor;
+        render_editor(LoroPlugins, (tiptapEditor, blocknoteEditor) => {
+          tiptapEditor = tiptapEditor;
+          blocknoteEditor = blocknoteEditor;
         });
       } else {
         //@ts-ignore
@@ -522,8 +540,9 @@ export async function init_tiptap(
           },
         });
 
-        render_editor(LoroPlugins, (editor) => {
-          editor = editor;
+        render_editor(LoroPlugins, (tiptapEditor, blocknoteEditor) => {
+          tiptapEditor = tiptapEditor;
+          blocknoteEditor = blocknoteEditor;
         });
       }
     });
@@ -574,130 +593,139 @@ export async function init_tiptap(
 
       setInterval(async () => save_function(room_id, doc), seconds * 1000);
 
-      livekitRoom.on("participantConnected", (participant) => {
+      livekitRoom.on("participantConnected", async (participant) => {
         let update = doc.export({ mode: "update" });
-        const updateString = btoa(String.fromCharCode(...update));
-        let update_json = JSON.stringify({
-          type: "update",
-          doc: updateString,
-        });
-        const update_encoder = new TextEncoder();
-        const update_data = update_encoder.encode(update_json);
 
-        livekitRoom.localParticipant.publishData(update_data, {
-          reliable: true,
+        const writer = await livekitRoom.localParticipant.streamBytes({
+          // All byte streams must have a name, which is like a filename
+          name: "loro-update",
+          // Fixed typo: "updare" -> "update"
+          topic: "loro-update",
         });
+
+        const chunkSize = 15000; // 15KB, a recommended max chunk size
+
+        // Stream the Uint8Array update data in chunks
+        for (let i = 0; i < update.length; i += chunkSize) {
+          const chunk = update.slice(i, i + chunkSize);
+          await writer.write(chunk);
+        }
+
+        await writer.close();
       });
-      livekitRoom.on("connected", () => {
+      livekitRoom.on("connected", async () => {
         let update = doc.export({ mode: "update" });
-        const updateString = btoa(String.fromCharCode(...update));
-        let update_json = JSON.stringify({
-          type: "update",
-          doc: updateString,
-        });
-        const update_encoder = new TextEncoder();
-        const update_data = update_encoder.encode(update_json);
 
-        livekitRoom.localParticipant.publishData(update_data, {
-          reliable: true,
+        const writer = await livekitRoom.localParticipant.streamBytes({
+          // All byte streams must have a name, which is like a filename
+          name: "loro-update",
+          // Fixed typo: "updare" -> "update"
+          topic: "loro-update",
         });
+
+        const chunkSize = 15000; // 15KB, a recommended max chunk size
+
+        // Stream the Uint8Array update data in chunks
+        for (let i = 0; i < update.length; i += chunkSize) {
+          const chunk = update.slice(i, i + chunkSize);
+          await writer.write(chunk);
+        }
+
+        await writer.close();
 
         doc.subscribe(async (e) => {
-          // let snapshot = doc.export({ mode: "snapshot" });
-
-          // const snapshotString = btoa(String.fromCharCode(...snapshot));
-
-          // localStorage.setItem(room_id, snapshotString);
-
           let update = doc.export({ mode: "update" });
-          const updateString = btoa(String.fromCharCode(...update));
 
-          let json = JSON.stringify({
-            type: "update",
-            doc: updateString,
+          const writer = await livekitRoom.localParticipant.streamBytes({
+            // All byte streams must have a name, which is like a filename
+            name: "loro-update",
+            // Fixed typo: "updare" -> "update"
+            topic: "loro-update",
           });
 
-          const encoder = new TextEncoder();
-          const data = encoder.encode(json);
+          const chunkSize = 15000; // 15KB, a recommended max chunk size
 
-          livekitRoom.localParticipant.publishData(data, {
-            reliable: false,
-          });
+          // Stream the Uint8Array update data in chunks
+          for (let i = 0; i < update.length; i += chunkSize) {
+            const chunk = update.slice(i, i + chunkSize);
+            await writer.write(chunk);
+          }
+
+          await writer.close();
+
+          // // The stream must be explicitly closed when done
+          // try await writer.close()
+
+          // livekitRoom.localParticipant.publishData(data, {
+          //   reliable: false,
+          // });
           await save_loro_doc(room_id, doc);
         });
 
-        awareness.addListener((update, origin) => {
-          if (origin === "local") {
-            const awarenessUpdate = awareness.encode([doc.peerIdStr]);
+        let debounceTimer;
 
-            const awarenessString = btoa(
-              String.fromCharCode(...awarenessUpdate)
-            );
-
-            let json = JSON.stringify({
-              type: "awareness",
-              selected_document: selected_document,
-              awareness: awarenessString,
-            });
-            const encoder = new TextEncoder();
-            const data = encoder.encode(json);
-
-            livekitRoom.localParticipant.publishData(data, {
-              reliable: false,
-            });
-          }
-        });
-        // init_awareness();
-      });
-      livekitRoom.on("dataReceived", (payload, participant) => {
-        const decoder = new TextDecoder();
-        const json_string = decoder.decode(payload);
-        const json = JSON.parse(json_string);
-
-        try {
-          // Handle document updates
-          if (json.doc) {
-            try {
-              // Decode base64 back to Uint8Array
-              const binaryString = atob(json.doc);
-              const update = new Uint8Array(binaryString.length);
-              for (let i = 0; i < binaryString.length; i++) {
-                update[i] = binaryString.charCodeAt(i);
-              }
-
-              doc.import(update);
-            } catch (error) {
-              console.error("Error importing document update:", error);
-            }
+        awareness.addListener(async (update, origin) => {
+          // Clear existing timer
+          if (debounceTimer) {
+            clearTimeout(debounceTimer);
           }
 
-          // Handle awareness updates (cursor positions from other clients)
-          if (json.awareness) {
-            if (json.selected_document) {
-              if (json.selected_document === selected_document) {
-                try {
-                  // Decode base64 back to Uint8Array
-                  const binaryString = atob(json.awareness);
-                  const awarenessUpdate = new Uint8Array(binaryString.length);
-                  for (let i = 0; i < binaryString.length; i++) {
-                    awarenessUpdate[i] = binaryString.charCodeAt(i);
-                  }
+          // Set new timer with 100ms delay
+          debounceTimer = setTimeout(async () => {
+            if (origin === "local") {
+              if (selected_document) {
+                const update = awareness.encode([doc.peerIdStr]);
 
-                  awareness.apply(awarenessUpdate);
-                } catch (error) {
-                  console.error("Error applying awareness update:", error);
+                const writer = await livekitRoom.localParticipant.streamBytes({
+                  // All byte streams must have a name, which is like a filename
+                  name: selected_document,
+                  // Fixed typo: "updare" -> "update"
+                  topic: "loro-awareness",
+                });
+
+                const chunkSize = 15000; // 15KB, a recommended max chunk size
+
+                // Stream the Uint8Array update data in chunks
+                for (let i = 0; i < update.length; i += chunkSize) {
+                  const chunk = update.slice(i, i + chunkSize);
+                  await writer.write(chunk);
                 }
+
+                await writer.close();
               }
             }
-          }
-        } catch (error) {
-          console.error(
-            "Error processing WebSocket message:",
-            error,
-            json_string
-          );
-        }
+          }, 100);
+        });
       });
+
+      livekitRoom.registerByteStreamHandler(
+        "loro-update",
+        async (reader, participantInfo) => {
+          const info = reader.info;
+
+          // Option 2: Get the entire file after the stream completes.
+          const result = new Blob(await reader.readAll(), {
+            type: info.mimeType,
+          });
+
+          const update = new Uint8Array(await result.arrayBuffer());
+          doc.import(update);
+        }
+      );
+      livekitRoom.registerByteStreamHandler(
+        "loro-awareness",
+        async (reader, participantInfo) => {
+          const info = reader.info;
+
+          // Option 2: Get the entire file after the stream completes.
+          const result = new Blob(await reader.readAll(), {
+            type: info.mimeType,
+          });
+
+          const update = new Uint8Array(await result.arrayBuffer());
+          awareness.apply(update);
+        }
+      );
     }
   });
 }
@@ -710,6 +738,7 @@ import {
   dropTargetForElements,
 } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
 import { Extension } from "@tiptap/core";
+import { BlockNoteEditor } from "@blocknote/core";
 
 export function make_draggable(folders_and_items: [HTMLElement]) {
   folders_and_items.forEach((element) => {

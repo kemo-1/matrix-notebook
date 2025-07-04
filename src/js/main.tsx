@@ -14,7 +14,7 @@ function Editor({ extension, onEditorReady }) {
 
   useEffect(() => {
     if (onEditorReady && editor._tiptapEditor) {
-      onEditorReady(editor._tiptapEditor);
+      onEditorReady(editor._tiptapEditor,editor);
     }
   }, [editor, onEditorReady]);
 
