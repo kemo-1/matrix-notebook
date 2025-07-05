@@ -1473,8 +1473,6 @@ fn reset_app() {
   let assert Ok(localstorage) = local()
 
   delete_items(localstorage)
-
-  delete_db
 }
 
 // UPDATE ----------------------------------------------------------------------

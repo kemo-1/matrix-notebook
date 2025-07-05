@@ -340,8 +340,7 @@ export async function get_login_sso() {
 }
 
 export function get_rooms(matrixClient: sdk.MatrixClient) {
-  matrixClient.removeAllListeners(sdk.ClientEvent.Sync);
-
+  matrixClient.removeAllListeners();
   matrixClient.on(sdk.ClientEvent.Sync, () => {
     const currentRooms = matrixClient.getRooms();
 
@@ -409,7 +408,7 @@ export async function save_function(room_id: string, doc: LoroDoc) {
   const snapshot = doc.export({
     mode: "snapshot",
   });
-  await save_loro_doc(room_id, doc);
+  await save_loro_doc(room_id, snapshot);
 
   const mxcUrl = await matrixClient.http.uploadContent(snapshot, {
     type: "application/octet-stream",
@@ -548,6 +547,7 @@ export async function init_tiptap(
       }
     });
   }
+
   matrixClient.once(sdk.ClientEvent.Sync, async (state, prev_state, res) => {
     const matrix_room = matrixClient.getRoom(room_id);
     if (!matrix_room) {
@@ -581,18 +581,12 @@ export async function init_tiptap(
 
       livekitRoom.connect(sfuConfig.url, sfuConfig.jwt);
 
-      save_function(room_id, doc);
-
       const mainApp = document.querySelector("#main-app");
       if (mainApp) {
         mainApp.addEventListener("save_doc", () => {
           save_function(room_id, doc);
         });
       }
-
-      let seconds = 300;
-
-      setInterval(async () => save_function(room_id, doc), seconds * 1000);
 
       livekitRoom.on("participantConnected", async (participant) => {
         let update = doc.export({ mode: "update" });
@@ -653,14 +647,6 @@ export async function init_tiptap(
           }
 
           await writer.close();
-
-          // // The stream must be explicitly closed when done
-          // try await writer.close()
-
-          // livekitRoom.localParticipant.publishData(data, {
-          //   reliable: false,
-          // });
-          await save_loro_doc(room_id, doc);
         });
 
         let debounceTimer;
@@ -801,12 +787,58 @@ export function make_drop_target(
   });
 }
 
-export function get_tree(doc: LoroDoc, room_id: string, on_tree) {
+class AutoSaver {
+  room_id: string;
+  doc: LoroDoc;
+  hasChanges: boolean;
+  intervalSeconds: number;
+  constructor(room_id, doc, intervalSeconds = 300) {
+    this.room_id = room_id;
+    this.doc = doc;
+    this.hasChanges = false;
+    this.intervalSeconds = intervalSeconds;
+    this.startAutoSave();
+  }
+
+  markChanged() {
+    this.hasChanges = true;
+  }
+
+  async conditionalSave() {
+    if (this.hasChanges === true) {
+      // debounce(
+      save_function(this.room_id, this.doc);
+      // ,
+      // )
+      this.hasChanges = false;
+    }
+  }
+
+  async startAutoSave() {
+    setInterval(async () => {
+      await this.conditionalSave();
+    }, this.intervalSeconds * 1000);
+  }
+}
+
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
+
+export async function get_tree(doc: LoroDoc, room_id: string, on_tree) {
   let tree: LoroTree = doc.getTree("tree");
   // tree.enableFractionalIndex(0);
-  let root = tree.createNode();
-  root.data.set("name", "root");
-  root.data.set("item_type", "folder");
+  // let root = tree.getNodeByID(ROOT_DOC_KEY);
+  // root.data.set("name", "root");
+  // root.data.set("item_type", "folder");
 
   // let folder1 = root.createNode();
   // folder1.data.set("name", "folder1");
@@ -825,16 +857,23 @@ export function get_tree(doc: LoroDoc, room_id: string, on_tree) {
 
   // file_2.data.set("name", "gleam.toml");
   // file_2.data.set("item_type", "file");
-
-  doc.subscribe(() => {
+  const autoSaver = new AutoSaver(room_id, doc);
+  // Call
+  doc.subscribe((e) => {
     let json = JSON.stringify(tree.toArray()[0]);
     on_tree(json);
-    save_loro_doc(room_id, doc);
+
+    let snapshot = doc.export({ mode: "snapshot" });
+    save_loro_doc(room_id, snapshot);
+
+    autoSaver.markChanged();
   });
-  doc.commit();
+  autoSaver.startAutoSave();
 
   let json = JSON.stringify(tree.toArray()[0]);
-  return json;
+  on_tree(json);
+
+  await save_function(room_id, doc);
 }
 
 interface File {
@@ -895,7 +934,7 @@ export async function create_loro_doc(room_id: string) {
 }
 
 // Helper function to save document updates to Dexie
-export async function save_loro_doc(room_id: string, doc: LoroDoc) {
+export async function save_loro_doc(room_id: string, snapshot: Uint8Array) {
   const db = new Dexie(room_id) as Dexie & {
     files: EntityTable<File, "id">;
   };
@@ -905,7 +944,6 @@ export async function save_loro_doc(room_id: string, doc: LoroDoc) {
   });
 
   try {
-    const snapshot = doc.export({ mode: "snapshot" });
     // const base64String = btoa(String.fromCharCode(...snapshot));
 
     // Update or create the file with room_id as the key
