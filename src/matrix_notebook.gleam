@@ -47,6 +47,7 @@ pub fn main() {
       app,
       "#app",
       Model(
+        loading: True,
         matrix_client: None,
         room: None,
         rooms: [],
@@ -191,6 +192,7 @@ pub fn node_decoder() {
 // MODEL -----------------------------------------------------------------------
 type Model {
   Model(
+    loading: Bool,
     selected_document: Option(String),
     matrix_client: Option(MatrixClient),
     room: Option(String),
@@ -242,10 +244,14 @@ pub opaque type Msg {
   HideFileSystemMenu
   UserSelectedNote(String)
   DownloadNoteBook
+  ToggleLoading
 }
 
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
+    ToggleLoading -> {
+      #(Model(..model, loading: !model.loading), effect.none())
+    }
     DoNothing -> #(model, effect.none())
     DownloadNoteBook -> {
       case model.loro_doc {
@@ -403,7 +409,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     ToggleModal -> #(Model(..model, modal: !model.modal), effect.none())
     StartSSOLogin -> #(model, login_sso())
     UserHasLoggedIn(matrix_client) -> #(
-      Model(..model, matrix_client: Some(matrix_client)),
+      Model(..model, loading: False, matrix_client: Some(matrix_client)),
       effect.batch([
         success_toast("Connected to Matrix Correctly"),
         get_rooms(matrix_client),
@@ -428,7 +434,10 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       effect.none(),
     )
     DisplayBasicToast(content) -> #(model, success_toast(content))
-    DisplayErrorToast(content) -> #(model, error_toast(content))
+    DisplayErrorToast(content) -> #(
+      Model(..model, loading: False),
+      error_toast(content),
+    )
   }
 }
 
@@ -506,446 +515,483 @@ fn view(model: Model, stylesheet) -> Element(Msg) {
       on_state_saved,
       attribute.id("main-app"),
     ],
-    case model.matrix_client {
-      None -> {
-        [
-          html.div(page, [], [
-            html.h1(
-              class([
-                css.font_size(length.px(28)),
-                css.margin_bottom(length.px(16)),
-              ]),
-              [],
-              [html.text("Matrix SSO Login")],
-            ),
-            html.button(button, [event.on_click(StartSSOLogin)], [
-              html.text("Login Using Matrix"),
-            ]),
-          ]),
-        ]
+    case model.loading {
+      True -> {
+        [html.text(" The App is Loading...Wait a second")]
       }
-      Some(matrix_client) -> {
-        case model.room {
-          Some(_) -> {
+      False -> {
+        case model.matrix_client {
+          None -> {
             [
-              case model.modal {
-                True -> {
-                  html.div(
-                    class([
-                      css.position("fixed"),
-                      css.top(length.rem(0.8)),
-                      css.right(length.rem(0.8)),
-                      css.padding(length.rem(1.0)),
-                      css.background(
-                        "linear-gradient(135deg, rgba(26, 26, 46, 0.95) 0%, rgba(22, 33, 62, 0.95) 100%)",
-                      ),
-                      css.border_radius(length.px(16)),
-                      css.box_shadow(
-                        "0 12px 40px rgba(0, 0, 0, 0.25), 0 4px 12px rgba(220, 38, 127, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1)",
-                      ),
-                      css.backdrop_filter("blur(16px)"),
-                      css.border("1px solid rgba(255, 255, 255, 0.08)"),
-                      css.z_index(100),
-                    ]),
-                    [],
-                    [
+              html.div(page, [], [
+                html.h1(
+                  class([
+                    css.font_size(length.px(28)),
+                    css.margin_bottom(length.px(16)),
+                  ]),
+                  [],
+                  [html.text("Matrix SSO Login")],
+                ),
+                html.button(button, [event.on_click(StartSSOLogin)], [
+                  html.text("Login Using Matrix"),
+                ]),
+              ]),
+            ]
+          }
+          Some(matrix_client) -> {
+            case model.room {
+              Some(_) -> {
+                [
+                  case model.modal {
+                    True -> {
                       html.div(
                         class([
-                          css.display("flex"),
-                          css.direction("rtl"),
-                          css.flex_direction("row"),
-                          css.gap(length.rem(0.75)),
+                          css.position("fixed"),
+                          css.top(length.rem(0.8)),
+                          css.right(length.rem(0.8)),
+                          css.padding(length.rem(1.0)),
+                          css.background(
+                            "linear-gradient(135deg, rgba(26, 26, 46, 0.95) 0%, rgba(22, 33, 62, 0.95) 100%)",
+                          ),
+                          css.border_radius(length.px(16)),
+                          css.box_shadow(
+                            "0 12px 40px rgba(0, 0, 0, 0.25), 0 4px 12px rgba(220, 38, 127, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1)",
+                          ),
+                          css.backdrop_filter("blur(16px)"),
+                          css.border("1px solid rgba(255, 255, 255, 0.08)"),
+                          css.z_index(100),
                         ]),
                         [],
                         [
-                          html.button(
+                          html.div(
                             class([
-                              css.z_index(200),
                               css.display("flex"),
-                              css.align_items("center"),
-                              css.justify_content("center"),
-                              css.width(length.rem(3.0)),
-                              css.height(length.rem(3.0)),
-                              css.background(
-                                "linear-gradient(135deg, rgba(220, 38, 127, 0.9), rgba(180, 28, 100, 0.9))",
-                              ),
-                              css.border("1px solid rgba(255, 255, 255, 0.12)"),
-                              css.color("#ffffff"),
-                              css.border_radius(length.px(12)),
-                              css.cursor("pointer"),
-                              css.font_size(length.rem(1.3)),
-                              css.font_weight("600"),
-                              css.letter_spacing("0.5px"),
-                              css.transition(
-                                "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-                              ),
-                              css.box_shadow(
-                                "0 6px 20px rgba(220, 38, 127, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.25)",
-                              ),
-                              css.hover([
-                                css.background(
-                                  "linear-gradient(135deg, rgba(220, 38, 127, 1), rgba(240, 48, 140, 1))",
-                                ),
-                                css.transform([
-                                  transform.translate_y(length.px(-3)),
-                                  transform.scale(1.02, 1.08),
-                                ]),
-                                css.box_shadow(
-                                  "0 10px 30px rgba(220, 38, 127, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.35)",
-                                ),
-                                css.border(
-                                  "1px solid rgba(255, 255, 255, 0.25)",
-                                ),
-                              ]),
-                              css.active([
-                                css.transform([
-                                  transform.translate_y(length.px(-1)),
-                                ]),
-                              ]),
+                              css.direction("rtl"),
+                              css.flex_direction("row"),
+                              css.gap(length.rem(0.75)),
                             ]),
-                            [event.on_click(ToggleModal)],
-                            [menu_svg(" #FFFFFF ")],
-                          ),
-                          html.button(
-                            class([
-                              css.z_index(200),
-                              css.display("flex"),
-                              css.align_items("center"),
-                              css.justify_content("center"),
-                              css.padding_right(length.rem(1.0)),
-                              css.padding_left(length.rem(1.0)),
-                              css.padding_top(length.rem(0.75)),
-                              css.padding_bottom(length.rem(0.75)),
-                              css.min_height(length.rem(2.5)),
-                              css.background("#1a1a2ef2"),
-                              css.border("1px solid rgba(255, 255, 255, 0.12)"),
-                              css.color("#ffffff"),
-                              css.border_radius(length.px(12)),
-                              css.cursor("pointer"),
-                              css.font_size(length.rem(0.9)),
-                              css.font_weight("600"),
-                              css.letter_spacing("0.3px"),
-                              css.transition(
-                                "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-                              ),
-                              css.hover([
-                                css.transform([
-                                  transform.translate_y(length.px(-3)),
-                                  transform.scale(1.02, 1.08),
-                                ]),
-                                css.border(
-                                  "1px solid rgba(255, 255, 255, 0.25)",
-                                ),
-                              ]),
-                              css.active([
-                                css.transform([
-                                  transform.translate_y(length.px(-1)),
-                                ]),
-                              ]),
-                            ]),
-                            [event.on_click(SaveDocument)],
-                            [html.text("Save The Notebook To The Room")],
-                          ),
-                          html.button(
-                            class([
-                              css.z_index(200),
-                              css.display("flex"),
-                              css.align_items("center"),
-                              css.justify_content("center"),
-                              css.padding_right(length.rem(1.0)),
-                              css.padding_left(length.rem(1.0)),
-                              css.padding_top(length.rem(0.75)),
-                              css.padding_bottom(length.rem(0.75)),
-                              css.min_height(length.rem(2.5)),
-                              css.background("#1a1a2ef2"),
-                              css.border("1px solid rgba(255, 255, 255, 0.12)"),
-                              css.color("#ffffff"),
-                              css.border_radius(length.px(12)),
-                              css.cursor("pointer"),
-                              css.font_size(length.rem(0.9)),
-                              css.font_weight("600"),
-                              css.letter_spacing("0.3px"),
-                              css.transition(
-                                "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-                              ),
-                              css.hover([
-                                css.transform([
-                                  transform.translate_y(length.px(-3)),
-                                  transform.scale(1.02, 1.08),
-                                ]),
-                                css.border(
-                                  "1px solid rgba(255, 255, 255, 0.25)",
-                                ),
-                              ]),
-                              css.active([
-                                css.transform([
-                                  transform.translate_y(length.px(-1)),
-                                ]),
-                              ]),
-                            ]),
-                            [event.on_click(DownloadNoteBook)],
-                            [html.text("Download The Notebook As a File")],
-                          ),
-                        ],
-                      ),
-                      case model.tree {
-                        Some(root) ->
-                          element.fragment([
-                            tree_view(model, root),
-                            case model.filesystem_menu {
-                              Some([item_id, y]) -> {
-                                let y =
-                                  int.parse(y) |> result.lazy_unwrap(fn() { 0 })
-                                html.div(
-                                  class([
-                                    // css.left(length.px(x)),
-                                    css.top(length.px(y)),
-                                    css.position("absolute"),
-                                    css.background_color("rgb(3, 29, 40)"),
-                                    css.border("1px solid #e1e5e9"),
-                                    css.border_radius(length.px(8)),
+                            [],
+                            [
+                              html.button(
+                                class([
+                                  css.z_index(200),
+                                  css.display("flex"),
+                                  css.align_items("center"),
+                                  css.justify_content("center"),
+                                  css.width(length.rem(3.0)),
+                                  css.height(length.rem(3.0)),
+                                  css.background(
+                                    "linear-gradient(135deg, rgba(220, 38, 127, 0.9), rgba(180, 28, 100, 0.9))",
+                                  ),
+                                  css.border(
+                                    "1px solid rgba(255, 255, 255, 0.12)",
+                                  ),
+                                  css.color("#ffffff"),
+                                  css.border_radius(length.px(12)),
+                                  css.cursor("pointer"),
+                                  css.font_size(length.rem(1.3)),
+                                  css.font_weight("600"),
+                                  css.letter_spacing("0.5px"),
+                                  css.transition(
+                                    "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                                  ),
+                                  css.box_shadow(
+                                    "0 6px 20px rgba(220, 38, 127, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.25)",
+                                  ),
+                                  css.hover([
+                                    css.background(
+                                      "linear-gradient(135deg, rgba(220, 38, 127, 1), rgba(240, 48, 140, 1))",
+                                    ),
+                                    css.transform([
+                                      transform.translate_y(length.px(-3)),
+                                      transform.scale(1.02, 1.08),
+                                    ]),
                                     css.box_shadow(
-                                      "0 4px 12px rgba(0, 0, 0, 0.1)",
+                                      "0 10px 30px rgba(220, 38, 127, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.35)",
                                     ),
-                                    css.padding(length.px(4)),
-                                    css.min_width(length.px(180)),
-                                    css.z_index(300),
-                                    css.font_family(
-                                      "system-ui, -apple-system, sans-serif",
+                                    css.border(
+                                      "1px solid rgba(255, 255, 255, 0.25)",
                                     ),
-                                    css.font_size(length.px(14)),
                                   ]),
-                                  [],
-                                  [
-                                    html.button(
+                                  css.active([
+                                    css.transform([
+                                      transform.translate_y(length.px(-1)),
+                                    ]),
+                                  ]),
+                                ]),
+                                [event.on_click(ToggleModal)],
+                                [menu_svg(" #FFFFFF ")],
+                              ),
+                              html.button(
+                                class([
+                                  css.z_index(200),
+                                  css.display("flex"),
+                                  css.align_items("center"),
+                                  css.justify_content("center"),
+                                  css.padding_right(length.rem(1.0)),
+                                  css.padding_left(length.rem(1.0)),
+                                  css.padding_top(length.rem(0.75)),
+                                  css.padding_bottom(length.rem(0.75)),
+                                  css.min_height(length.rem(2.5)),
+                                  css.background("#1a1a2ef2"),
+                                  css.border(
+                                    "1px solid rgba(255, 255, 255, 0.12)",
+                                  ),
+                                  css.color("#ffffff"),
+                                  css.border_radius(length.px(12)),
+                                  css.cursor("pointer"),
+                                  css.font_size(length.rem(0.9)),
+                                  css.font_weight("600"),
+                                  css.letter_spacing("0.3px"),
+                                  css.transition(
+                                    "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                                  ),
+                                  css.hover([
+                                    css.transform([
+                                      transform.translate_y(length.px(-3)),
+                                      transform.scale(1.02, 1.08),
+                                    ]),
+                                    css.border(
+                                      "1px solid rgba(255, 255, 255, 0.25)",
+                                    ),
+                                  ]),
+                                  css.active([
+                                    css.transform([
+                                      transform.translate_y(length.px(-1)),
+                                    ]),
+                                  ]),
+                                ]),
+                                [event.on_click(SaveDocument)],
+                                [html.text("Save The Notebook To The Room")],
+                              ),
+                              html.button(
+                                class([
+                                  css.z_index(200),
+                                  css.display("flex"),
+                                  css.align_items("center"),
+                                  css.justify_content("center"),
+                                  css.padding_right(length.rem(1.0)),
+                                  css.padding_left(length.rem(1.0)),
+                                  css.padding_top(length.rem(0.75)),
+                                  css.padding_bottom(length.rem(0.75)),
+                                  css.min_height(length.rem(2.5)),
+                                  css.background("#1a1a2ef2"),
+                                  css.border(
+                                    "1px solid rgba(255, 255, 255, 0.12)",
+                                  ),
+                                  css.color("#ffffff"),
+                                  css.border_radius(length.px(12)),
+                                  css.cursor("pointer"),
+                                  css.font_size(length.rem(0.9)),
+                                  css.font_weight("600"),
+                                  css.letter_spacing("0.3px"),
+                                  css.transition(
+                                    "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                                  ),
+                                  css.hover([
+                                    css.transform([
+                                      transform.translate_y(length.px(-3)),
+                                      transform.scale(1.02, 1.08),
+                                    ]),
+                                    css.border(
+                                      "1px solid rgba(255, 255, 255, 0.25)",
+                                    ),
+                                  ]),
+                                  css.active([
+                                    css.transform([
+                                      transform.translate_y(length.px(-1)),
+                                    ]),
+                                  ]),
+                                ]),
+                                [event.on_click(DownloadNoteBook)],
+                                [html.text("Download The Notebook As a File")],
+                              ),
+                            ],
+                          ),
+                          case model.tree {
+                            Some(root) ->
+                              element.fragment([
+                                tree_view(model, root),
+                                case model.filesystem_menu {
+                                  Some([item_id, y]) -> {
+                                    let y =
+                                      int.parse(y)
+                                      |> result.lazy_unwrap(fn() { 0 })
+                                    html.div(
                                       class([
-                                        css.display("flex"),
-                                        css.align_items("center"),
-                                        css.padding_left(length.px(8)),
-                                        css.padding_right(length.px(12)),
-                                        css.padding_top(length.px(8)),
-                                        css.padding_bottom(length.px(8)),
-                                        css.cursor("pointer"),
-                                        css.border_radius(length.px(4)),
-                                        css.border("none"),
-                                        css.background_color("transparent"),
-                                        css.color("#e2e8f0"),
-                                        css.transition("all 0.2s ease"),
-                                        css.width(length.percent(100)),
-                                        css.text_align("left"),
-                                        css.hover([
-                                          css.background_color(
-                                            "rgba(59, 130, 246, 0.1)",
-                                          ),
-                                          css.color("#3b82f6"),
-                                        ]),
+                                        // css.left(length.px(x)),
+                                        css.top(length.px(y)),
+                                        css.position("absolute"),
+                                        css.background_color("rgb(3, 29, 40)"),
+                                        css.border("1px solid #e1e5e9"),
+                                        css.border_radius(length.px(8)),
+                                        css.box_shadow(
+                                          "0 4px 12px rgba(0, 0, 0, 0.1)",
+                                        ),
+                                        css.padding(length.px(4)),
+                                        css.min_width(length.px(180)),
+                                        css.z_index(300),
+                                        css.font_family(
+                                          "system-ui, -apple-system, sans-serif",
+                                        ),
+                                        css.font_size(length.px(14)),
                                       ]),
-                                      [event.on_click(CreateNewNote(item_id))],
+                                      [],
                                       [
-                                        html.div(
+                                        html.button(
                                           class([
-                                            css.width(length.px(16)),
-                                            css.height(length.px(16)),
-                                            css.margin_right(length.px(8)),
                                             css.display("flex"),
                                             css.align_items("center"),
-                                            css.justify_content("center"),
+                                            css.padding_left(length.px(8)),
+                                            css.padding_right(length.px(12)),
+                                            css.padding_top(length.px(8)),
+                                            css.padding_bottom(length.px(8)),
+                                            css.cursor("pointer"),
+                                            css.border_radius(length.px(4)),
+                                            css.border("none"),
+                                            css.background_color("transparent"),
+                                            css.color("#e2e8f0"),
+                                            css.transition("all 0.2s ease"),
+                                            css.width(length.percent(100)),
+                                            css.text_align("left"),
+                                            css.hover([
+                                              css.background_color(
+                                                "rgba(59, 130, 246, 0.1)",
+                                              ),
+                                              css.color("#3b82f6"),
+                                            ]),
                                           ]),
-                                          [],
-                                          [html.text("📄")],
+                                          [
+                                            event.on_click(CreateNewNote(
+                                              item_id,
+                                            )),
+                                          ],
+                                          [
+                                            html.div(
+                                              class([
+                                                css.width(length.px(16)),
+                                                css.height(length.px(16)),
+                                                css.margin_right(length.px(8)),
+                                                css.display("flex"),
+                                                css.align_items("center"),
+                                                css.justify_content("center"),
+                                              ]),
+                                              [],
+                                              [html.text("📄")],
+                                            ),
+                                            html.text("New Note"),
+                                          ],
                                         ),
-                                        html.text("New Note"),
-                                      ],
-                                    ),
-                                    html.button(
-                                      class([
-                                        css.display("flex"),
-                                        css.align_items("center"),
-                                        css.padding_left(length.px(8)),
-                                        css.padding_right(length.px(12)),
-                                        css.padding_top(length.px(8)),
-                                        css.padding_bottom(length.px(8)),
-                                        css.cursor("pointer"),
-                                        css.border_radius(length.px(4)),
-                                        css.border("none"),
-                                        css.background_color("transparent"),
-                                        css.color("#e2e8f0"),
-                                        css.transition("all 0.2s ease"),
-                                        css.width(length.percent(100)),
-                                        css.text_align("left"),
-                                        css.hover([
-                                          css.background_color(
-                                            "rgba(59, 130, 246, 0.1)",
-                                          ),
-                                          css.color("#3b82f6"),
-                                        ]),
-                                      ]),
-                                      [event.on_click(CreateNewFolder(item_id))],
-                                      [
-                                        html.div(
+                                        html.button(
                                           class([
-                                            css.width(length.px(16)),
-                                            css.height(length.px(16)),
-                                            css.margin_right(length.px(8)),
                                             css.display("flex"),
                                             css.align_items("center"),
-                                            css.justify_content("center"),
+                                            css.padding_left(length.px(8)),
+                                            css.padding_right(length.px(12)),
+                                            css.padding_top(length.px(8)),
+                                            css.padding_bottom(length.px(8)),
+                                            css.cursor("pointer"),
+                                            css.border_radius(length.px(4)),
+                                            css.border("none"),
+                                            css.background_color("transparent"),
+                                            css.color("#e2e8f0"),
+                                            css.transition("all 0.2s ease"),
+                                            css.width(length.percent(100)),
+                                            css.text_align("left"),
+                                            css.hover([
+                                              css.background_color(
+                                                "rgba(59, 130, 246, 0.1)",
+                                              ),
+                                              css.color("#3b82f6"),
+                                            ]),
                                           ]),
-                                          [],
-                                          [html.text("📁")],
+                                          [
+                                            event.on_click(CreateNewFolder(
+                                              item_id,
+                                            )),
+                                          ],
+                                          [
+                                            html.div(
+                                              class([
+                                                css.width(length.px(16)),
+                                                css.height(length.px(16)),
+                                                css.margin_right(length.px(8)),
+                                                css.display("flex"),
+                                                css.align_items("center"),
+                                                css.justify_content("center"),
+                                              ]),
+                                              [],
+                                              [html.text("📁")],
+                                            ),
+                                            html.text("New Folder"),
+                                          ],
                                         ),
-                                        html.text("New Folder"),
                                       ],
-                                    ),
-                                  ],
-                                )
-                              }
-                              _ -> {
-                                element.none()
-                              }
-                            },
-                          ])
-                        None -> element.none()
-                      },
-                    ],
-                  )
-                }
-                False -> {
-                  html.button(
-                    class([
-                      css.z_index(200),
-                      css.position("fixed"),
-                      css.display("flex"),
-                      css.top(length.rem(1.5)),
-                      css.right(length.rem(1.5)),
-                      css.align_items("center"),
-                      css.justify_content("center"),
-                      css.width(length.rem(3.0)),
-                      css.height(length.rem(3.0)),
-                      css.background(
-                        "linear-gradient(135deg, rgba(220, 38, 127, 0.9), rgba(180, 28, 100, 0.9))",
-                      ),
-                      css.border("2px solid rgba(255, 255, 255, 0.1)"),
-                      css.color("#ffffff"),
-                      css.border_radius(length.px(10)),
-                      css.cursor("pointer"),
-                      css.font_size(length.rem(1.2)),
-                      css.font_weight("600"),
-                      css.letter_spacing("1px"),
-                      css.transition("all 0.3s cubic-bezier(0.4, 0, 0.2, 1)"),
-                      css.box_shadow(
-                        "0 4px 15px rgba(220, 38, 127, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)",
-                      ),
-                      css.hover([
-                        css.background(
-                          "linear-gradient(135deg, rgba(220, 38, 127, 1), rgba(240, 48, 140, 1))",
-                        ),
-                        css.transform([
-                          transform.translate_y(length.px(-2)),
-                          transform.scale(1.0, 1.05),
-                        ]),
-                        css.box_shadow(
-                          "0 8px 25px rgba(220, 38, 127, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.3)",
-                        ),
-                        css.border("2px solid rgba(255, 255, 255, 0.2)"),
-                      ]),
-                      css.active([
-                        css.transform([transform.translate_y(length.px(0))]),
-                      ]),
-                    ]),
-                    [event.on_click(ToggleModal)],
-                    [menu_svg(" #FFFFFF ")],
-                  )
-                }
-              },
-              lustre_element.unsafe_raw_html(
-                "",
-                "div",
-                [attribute.class("editor")],
-                "",
-              ),
-            ]
-          }
-          None -> {
-            let button_room =
-              class([
-                css.background("rgba(220, 38, 127, 0.8)"),
-                css.color("#ffffff"),
-                css.border("none"),
-                css.border_radius(length.px(8)),
-                css.padding_("12px 20px"),
-                // css.margin_bottom(length.px(20)),
-                css.cursor("pointer"),
-                css.font_weight("500"),
-                css.transition("all 0.2s ease"),
-                css.hover([
-                  css.background("rgba(220, 38, 127, 1)"),
-                  css.transform([transform.translate_y(length.px(-1))]),
-                ]),
-              ])
-
-            [
-              html.div(page, [], [
-                case model.modal {
-                  True -> {
-                    html.div(
-                      class([
-                        css.background(
-                          "linear-gradient(145deg, #1a1a2e 0%, #16213e 100%)",
-                        ),
-                        css.border_radius(length.px(12)),
-                        css.padding_("24px"),
-                        css.margin_("16px auto"),
-                        css.max_width(length.px(600)),
-                        css.box_shadow("0 8px 32px rgba(0, 0, 0, 0.3)"),
-                        css.border("1px solid rgba(255, 255, 255, 0.1)"),
-                      ]),
-                      [],
-                      [
-                        html.button(button_room, [event.on_click(ToggleModal)], [
-                          html.text("hide modal"),
-                        ]),
-                        model.rooms
-                          |> list.filter(fn(room) {
-                            !list.contains(model.selected_rooms, room.room_id)
-                          })
-                          |> list.map(render_room_card(_, matrix_client, "add"))
-                          |> lustre_element.fragment,
-                      ],
-                    )
-                  }
-
-                  False -> {
-                    html.button(button_room, [event.on_click(ToggleModal)], [
-                      html.text("show modal"),
-                    ])
-                  }
-                },
-                html.div(class([]), [], [
-                  html.h1(header_styles(), [], [
-                    html.text("Your Favorite Rooms"),
-                  ]),
-                  case model.rooms {
-                    [] -> {
-                      html.div(empty_state_styles(), [], [
-                        html.text("Your rooms are loading wait a sec"),
-                      ])
+                                    )
+                                  }
+                                  _ -> {
+                                    element.none()
+                                  }
+                                },
+                              ])
+                            None -> element.none()
+                          },
+                        ],
+                      )
                     }
-                    _ -> {
-                      html.div(container_styles(), [], [
-                        model.rooms
-                        |> list.filter(fn(room) {
-                          model.selected_rooms
-                          |> list.contains(room.room_id)
-                        })
-                        |> list.map(render_room_card(_, matrix_client, "remove"))
-                        |> lustre_element.fragment,
-                      ])
+                    False -> {
+                      html.button(
+                        class([
+                          css.z_index(200),
+                          css.position("fixed"),
+                          css.display("flex"),
+                          css.top(length.rem(1.5)),
+                          css.right(length.rem(1.5)),
+                          css.align_items("center"),
+                          css.justify_content("center"),
+                          css.width(length.rem(3.0)),
+                          css.height(length.rem(3.0)),
+                          css.background(
+                            "linear-gradient(135deg, rgba(220, 38, 127, 0.9), rgba(180, 28, 100, 0.9))",
+                          ),
+                          css.border("2px solid rgba(255, 255, 255, 0.1)"),
+                          css.color("#ffffff"),
+                          css.border_radius(length.px(10)),
+                          css.cursor("pointer"),
+                          css.font_size(length.rem(1.2)),
+                          css.font_weight("600"),
+                          css.letter_spacing("1px"),
+                          css.transition(
+                            "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                          ),
+                          css.box_shadow(
+                            "0 4px 15px rgba(220, 38, 127, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)",
+                          ),
+                          css.hover([
+                            css.background(
+                              "linear-gradient(135deg, rgba(220, 38, 127, 1), rgba(240, 48, 140, 1))",
+                            ),
+                            css.transform([
+                              transform.translate_y(length.px(-2)),
+                              transform.scale(1.0, 1.05),
+                            ]),
+                            css.box_shadow(
+                              "0 8px 25px rgba(220, 38, 127, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.3)",
+                            ),
+                            css.border("2px solid rgba(255, 255, 255, 0.2)"),
+                          ]),
+                          css.active([
+                            css.transform([transform.translate_y(length.px(0))]),
+                          ]),
+                        ]),
+                        [event.on_click(ToggleModal)],
+                        [menu_svg(" #FFFFFF ")],
+                      )
                     }
                   },
-                ]),
-              ]),
-            ]
+                  lustre_element.unsafe_raw_html(
+                    "",
+                    "div",
+                    [attribute.class("editor")],
+                    "",
+                  ),
+                ]
+              }
+              None -> {
+                let button_room =
+                  class([
+                    css.background("rgba(220, 38, 127, 0.8)"),
+                    css.color("#ffffff"),
+                    css.border("none"),
+                    css.border_radius(length.px(8)),
+                    css.padding_("12px 20px"),
+                    // css.margin_bottom(length.px(20)),
+                    css.cursor("pointer"),
+                    css.font_weight("500"),
+                    css.transition("all 0.2s ease"),
+                    css.hover([
+                      css.background("rgba(220, 38, 127, 1)"),
+                      css.transform([transform.translate_y(length.px(-1))]),
+                    ]),
+                  ])
+
+                [
+                  html.div(page, [], [
+                    case model.modal {
+                      True -> {
+                        html.div(
+                          class([
+                            css.background(
+                              "linear-gradient(145deg, #1a1a2e 0%, #16213e 100%)",
+                            ),
+                            css.border_radius(length.px(12)),
+                            css.padding_("24px"),
+                            css.margin_("16px auto"),
+                            css.max_width(length.px(600)),
+                            css.box_shadow("0 8px 32px rgba(0, 0, 0, 0.3)"),
+                            css.border("1px solid rgba(255, 255, 255, 0.1)"),
+                          ]),
+                          [],
+                          [
+                            html.button(
+                              button_room,
+                              [event.on_click(ToggleModal)],
+                              [html.text("hide modal")],
+                            ),
+                            model.rooms
+                              |> list.filter(fn(room) {
+                                !list.contains(
+                                  model.selected_rooms,
+                                  room.room_id,
+                                )
+                              })
+                              |> list.map(render_room_card(
+                                _,
+                                matrix_client,
+                                "add",
+                              ))
+                              |> lustre_element.fragment,
+                          ],
+                        )
+                      }
+
+                      False -> {
+                        html.button(button_room, [event.on_click(ToggleModal)], [
+                          html.text("show modal"),
+                        ])
+                      }
+                    },
+                    html.div(class([]), [], [
+                      html.h1(header_styles(), [], [
+                        html.text("Your Favorite Rooms"),
+                      ]),
+                      case model.rooms {
+                        [] -> {
+                          html.div(empty_state_styles(), [], [
+                            html.text("Your rooms are loading wait a sec"),
+                          ])
+                        }
+                        _ -> {
+                          html.div(container_styles(), [], [
+                            model.rooms
+                            |> list.filter(fn(room) {
+                              model.selected_rooms
+                              |> list.contains(room.room_id)
+                            })
+                            |> list.map(render_room_card(
+                              _,
+                              matrix_client,
+                              "remove",
+                            ))
+                            |> lustre_element.fragment,
+                          ])
+                        }
+                      },
+                    ]),
+                  ]),
+                ]
+              }
+            }
           }
         }
       }
@@ -1427,6 +1473,8 @@ fn reset_app() {
   let assert Ok(localstorage) = local()
 
   delete_items(localstorage)
+
+  delete_db
 }
 
 // UPDATE ----------------------------------------------------------------------
@@ -1454,7 +1502,7 @@ fn get_login_sso() {
       Error(error_message) -> {
         case error_message {
           "" -> {
-            Nil
+            dispatch(ToggleLoading)
           }
           _ -> {
             reset_app()

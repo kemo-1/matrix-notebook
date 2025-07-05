@@ -24,7 +24,7 @@ import {
 } from "loro-crdt";
 
 import * as sdk from "matrix-js-sdk";
-
+const ROOT_DOC_KEY = "0@14167320934836008919";
 let matrixClient: sdk.MatrixClient;
 
 import { AutoDiscovery } from "matrix-js-sdk";
@@ -328,6 +328,7 @@ export async function get_login_sso() {
 
         return new Ok(matrixClient);
       } catch (error) {
+        indexedDB.deleteDatabase("matrix-js-sdk::matrix-sdk-crypto");
         console.error("Matrix login failed:", error);
         let message = "Matrix login failed: \n" + error;
         return new Error(message);

@@ -4,7 +4,6 @@ import { BlockNoteView } from "@blocknote/mantine";
 import "@blocknote/mantine/style.css";
 import { useCreateBlockNote } from "@blocknote/react";
 import React, { useEffect, useRef } from "react";
-
 function Editor({ extension, onEditorReady }) {
   const editor = useCreateBlockNote({
     _tiptapOptions: {
